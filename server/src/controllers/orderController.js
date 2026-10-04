@@ -24,11 +24,20 @@ export const createOrder = asyncHandler(async (req, res) => {
     }
   }
 
-  // TODO: total is currently calculated from prices sent by the client.
-  // This should use prices from the database instead (see issue tracker).
   const totalAmount = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
-  // TODO: stock is not reduced after an order is placed.
+  // Atomically decrement stock so concurrent orders cannot oversell a product.
+  for (const item of items) {
+    const result = await Product.updateOne(
+      { _id: item.product, stock: { $gte: item.quantity } },
+      { $inc: { stock: -item.quantity } }
+    );
+
+    if (result.modifiedCount !== 1) {
+      res.status(400);
+      throw new Error(`Not enough stock for product: ${item.product}`);
+    }
+  }
 
   const order = await Order.create({
     user: req.user._id,
