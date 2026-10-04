@@ -11,7 +11,8 @@ export const createOrder = asyncHandler(async (req, res) => {
     throw new Error('Order must contain at least one item');
   }
 
-  // Check that every product exists and has enough stock
+  // Load product data from MongoDB so client-supplied names/prices cannot be trusted.
+  const productsById = new Map();
   for (const item of items) {
     const product = await Product.findById(item.product);
     if (!product) {
@@ -22,17 +23,24 @@ export const createOrder = asyncHandler(async (req, res) => {
       res.status(400);
       throw new Error(`Not enough stock for ${product.name}`);
     }
+    productsById.set(String(product._id), product);
   }
 
-  // TODO: total is currently calculated from prices sent by the client.
-  // This should use prices from the database instead (see issue tracker).
-  const totalAmount = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const orderItems = items.map((item) => {
+    const product = productsById.get(String(item.product));
+    return {
+      product: product._id,
+      name: product.name,
+      price: product.price,
+      quantity: item.quantity,
+    };
+  });
 
-  // TODO: stock is not reduced after an order is placed.
+  const totalAmount = orderItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const order = await Order.create({
     user: req.user._id,
-    items,
+    items: orderItems,
     shippingAddress,
     paymentMethod,
     totalAmount,
